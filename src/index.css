@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-pixel: "Press Start 2P", monospace;
+}
+
+@layer utilities {
+  .crt-scanlines {
+    background: linear-gradient(
+      rgba(18, 16, 16, 0) 50%,
+      rgba(0, 0, 0, 0.4) 50%
+    );
+    background-size: 100% 4px;
+    pointer-events: none;
+  }
+  
+  .crt-glow {
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.15), inset 0 0 25px rgba(0, 0, 0, 0.8);
+  }
+}

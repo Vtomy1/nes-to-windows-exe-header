@@ -1,0 +1,6 @@
+{
+  "name": "NES to Windows EXE Header Converter",
+  "description": "Convert NES ROMs into standalone Windows executable headers and packages for seamless desktop gameplay with header doctor, hex analysis, and live emulator preview.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
