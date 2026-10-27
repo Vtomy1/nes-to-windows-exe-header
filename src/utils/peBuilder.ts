@@ -4,7 +4,7 @@
  */
 
 import JSZip from 'jszip';
-import { WindowsExeConfig, PeHeaderSummary, PeSectionInfo } from '../types/nes';
+import { WindowsExeConfig, PeHeaderSummary, PeSectionInfo, RomSaveState } from '../types/nes';
 import { createDefaultRetroIco } from './icoGenerator';
 
 export function createDefaultExeConfig(gameTitle: string = 'NES Game'): WindowsExeConfig {
@@ -47,12 +47,13 @@ export function createDefaultExeConfig(gameTitle: string = 'NES Game'): WindowsE
  * - COFF Header
  * - Optional Header (GUI Subsystem, 64-bit ImageBase)
  * - Section Table (.text, .rdata, .rsrc, .nesrom)
- * - Embedded Launcher Code Stub & NES ROM Payload Section
+ * - Embedded Launcher Code Stub & NES ROM Payload Section with optional Save State progress
  */
 export function buildWindowsExecutable(
   nesRomBytes: Uint8Array,
   config: WindowsExeConfig,
-  customIcoBytes?: Uint8Array
+  customIcoBytes?: Uint8Array,
+  initialSaveState?: RomSaveState
 ): { exeBytes: Uint8Array; summary: PeHeaderSummary } {
   const is64 = config.targetArchitecture === 'x64';
   const icoData = customIcoBytes || createDefaultRetroIco();
@@ -62,29 +63,46 @@ export function buildWindowsExecutable(
 
   // Prepare Payload Data (.nesrom section)
   // Structure:
-  // [8 bytes] Magic "NES_EXE1"
+  // [8 bytes] Magic "NES_EXE2"
   // [4 bytes] Config JSON length
   // [N bytes] Config JSON string
+  // [4 bytes] Save State JSON length (0 if none)
+  // [K bytes] Save State JSON string (optional)
   // [4 bytes] ROM length
   // [M bytes] NES ROM bytes
   const configJson = JSON.stringify(config);
   const configBytes = enc.encode(configJson);
-  const payloadHeaderSize = 8 + 4 + configBytes.length + 4;
+  const saveStateBytes = initialSaveState?.stateJson ? enc.encode(initialSaveState.stateJson) : new Uint8Array(0);
+
+  const payloadHeaderSize = 8 + 4 + configBytes.length + 4 + saveStateBytes.length + 4;
   const payloadRawSize = payloadHeaderSize + nesRomBytes.length;
 
   const payloadBuffer = new Uint8Array(payloadRawSize);
   const payloadView = new DataView(payloadBuffer.buffer);
   
-  // "NES_EXE1"
-  payloadBuffer.set(enc.encode('NES_EXE1'), 0);
+  // Magic "NES_EXE2"
+  payloadBuffer.set(enc.encode('NES_EXE2'), 0);
+  
+  // Config
   payloadView.setUint32(8, configBytes.length, true);
   payloadBuffer.set(configBytes, 12);
-  const romLenOffset = 12 + configBytes.length;
-  payloadView.setUint32(romLenOffset, nesRomBytes.length, true);
-  payloadBuffer.set(nesRomBytes, romLenOffset + 4);
+  let cursor = 12 + configBytes.length;
+
+  // Save State
+  payloadView.setUint32(cursor, saveStateBytes.length, true);
+  cursor += 4;
+  if (saveStateBytes.length > 0) {
+    payloadBuffer.set(saveStateBytes, cursor);
+    cursor += saveStateBytes.length;
+  }
+
+  // ROM
+  payloadView.setUint32(cursor, nesRomBytes.length, true);
+  cursor += 4;
+  payloadBuffer.set(nesRomBytes, cursor);
 
   // Prepare .rdata (Metadata strings & Version Info)
-  const rdataStrings = `\0Application: ${config.gameTitle}\0Version: ${config.version}\0Publisher: ${config.publisher}\0Subsystem: Windows GUI Desktop\0Architecture: ${config.targetArchitecture}\0Engine: Native Scanline NES Engine Stub v2.4\0`;
+  const rdataStrings = `\0Application: ${config.gameTitle}\0Version: ${config.version}\0Publisher: ${config.publisher}\0Subsystem: Windows GUI Desktop\0Architecture: ${config.targetArchitecture}\0Engine: Native Scanline NES Engine Stub v2.4\0SaveState: ${initialSaveState ? initialSaveState.name : 'None'}\0`;
   const rdataBytes = enc.encode(rdataStrings);
 
   // Prepare .rsrc (Windows Manifest & Icon Resource)
@@ -410,9 +428,10 @@ export function buildWindowsExecutable(
 export async function buildDesktopDistributionZip(
   nesRomBytes: Uint8Array,
   config: WindowsExeConfig,
-  customIcoBytes?: Uint8Array
+  customIcoBytes?: Uint8Array,
+  initialSaveState?: RomSaveState
 ): Promise<Blob> {
-  const { exeBytes } = buildWindowsExecutable(nesRomBytes, config, customIcoBytes);
+  const { exeBytes } = buildWindowsExecutable(nesRomBytes, config, customIcoBytes, initialSaveState);
   const icoData = customIcoBytes || createDefaultRetroIco();
 
   const zip = new JSZip();
@@ -426,6 +445,8 @@ export async function buildDesktopDistributionZip(
 GameTitle=${config.gameTitle}
 Version=${config.version}
 Publisher=${config.publisher}
+AutoResumeSaveState=${initialSaveState ? '1' : '0'}
+SaveStateTitle=${initialSaveState ? initialSaveState.name : 'None'}
 
 [Graphics]
 WindowMode=${config.defaultWindowMode}
@@ -467,8 +488,13 @@ label=${config.gameTitle}
   // Add standalone icon.ico
   zip.file('icon.ico', icoData);
 
-  // Add saves/ folder with sample save descriptor
-  zip.folder('saves')?.file('.keep', '# Directory reserved for battery SRAM and quick save files\n');
+  // Add saves/ folder with sample save descriptor or actual saved state
+  if (initialSaveState) {
+    zip.file('saves/quicksave.state', initialSaveState.stateJson);
+    zip.file('saves/README_SAVES.txt', `Pre-packaged save state: "${initialSaveState.name}"\nTimestamp: ${new Date(initialSaveState.timestamp).toLocaleString()}\n`);
+  } else {
+    zip.folder('saves')?.file('.keep', '# Directory reserved for battery SRAM and quick save files\n');
+  }
 
   // Add README.txt
   const readme = `========================================================

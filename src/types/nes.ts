@@ -48,6 +48,16 @@ export interface NesRomData {
   diagnostics: string[];
 }
 
+export interface RomSaveState {
+  id: string;
+  name: string;
+  slotNumber: number;
+  timestamp: number;
+  thumbnailUrl?: string; // Captured frame data URL
+  stateJson: string; // Serialized state
+  romCrc32: string;
+}
+
 export interface WindowsExeConfig {
   gameTitle: string;
   publisher: string;
@@ -65,6 +75,7 @@ export interface WindowsExeConfig {
   pauseOnFocusLost: boolean;
   allowQuickSave: boolean;
   xinputAutoMap: boolean;
+  embeddedSaveStateId?: string;
   keyBindings: {
     up: string;
     down: string;

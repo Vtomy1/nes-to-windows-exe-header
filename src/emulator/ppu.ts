@@ -15,6 +15,17 @@ export const NES_PALETTE_RGB: number[] = [
   0xe4e594, 0xcfe99b, 0xbfe7b3, 0xb6ebd0, 0xb7e5f3, 0xc7c7c7, 0x000000, 0x000000,
 ];
 
+// Precomputed 32-bit ABGR values for direct Uint32Array writing on little-endian systems
+export const NES_PALETTE_UINT32: Uint32Array = new Uint32Array(
+  NES_PALETTE_RGB.map((rgb) => {
+    const r = (rgb >> 16) & 0xff;
+    const g = (rgb >> 8) & 0xff;
+    const b = rgb & 0xff;
+    // ABGR: Alpha 0xFF, Blue, Green, Red
+    return ((0xff << 24) | (b << 16) | (g << 8) | r) >>> 0;
+  })
+);
+
 export interface PpuBus {
   readChr(addr: number): number;
   writeChr(addr: number, val: number): void;
@@ -218,11 +229,11 @@ export class Ppu {
     const spHeight = (this.ctrl & 0x20) ? 16 : 8;
 
     const rowOffset = sl * 256;
-    const universalBgColor = NES_PALETTE_RGB[this.palette[0] & 0x3f];
+    const universalBgColor = NES_PALETTE_UINT32[this.palette[0] & 0x3f];
 
     // Clear line with universal background color
     for (let x = 0; x < 256; x++) {
-      this.frameBuffer[rowOffset + x] = 0xff000000 | universalBgColor;
+      this.frameBuffer[rowOffset + x] = universalBgColor;
     }
 
     if (!showBg && !showSprites) return;
@@ -232,20 +243,24 @@ export class Ppu {
 
     // 1. Render Background
     if (showBg) {
+      // Coarse and fine scroll coordinates
+      const scrollX = (this.t & 0x1f) * 8 + this.x;
+      const scrollY = ((this.t >> 5) & 0x1f) * 8 + ((this.t >> 12) & 0x07);
+      const baseNtX = this.ctrl & 0x01;
+      const baseNtY = (this.ctrl >> 1) & 0x01;
+
       for (let x = 0; x < 256; x++) {
-        // Compute coarse and fine scroll coordinates
-        const scrollX = (this.t & 0x1f) * 8 + this.x;
-        const scrollY = ((this.t >> 5) & 0x1f) * 8 + ((this.t >> 12) & 0x07);
-        const px = (x + scrollX) & 0x1ff;
-        const py = (sl + scrollY) & 0x1ff;
+        const px = x + scrollX;
+        const py = sl + scrollY;
 
-        // Nametable select based on bit 10 and 11
-        const ntX = (px >> 8) & 1;
-        const ntY = (py >> 8) & 1;
+        const ntX = (baseNtX + Math.floor(px / 256)) & 1;
+        const ntY = (baseNtY + Math.floor(py / 240)) & 1;
+        const normalizedPx = px % 256;
+        const normalizedPy = py % 240;
+
         const ntBase = 0x2000 + (ntY * 2 + ntX) * 0x400;
-
-        const tileX = (px >> 3) & 0x1f;
-        const tileY = (py >> 3) & 0x1f;
+        const tileX = (normalizedPx >> 3) & 0x1f;
+        const tileY = (normalizedPy >> 3) & 0x1f;
         const tileIndex = this.readVram(ntBase + tileY * 32 + tileX);
 
         // Attribute byte for palette index
@@ -255,8 +270,8 @@ export class Ppu {
         const palHigh = (attrByte >> shift) & 0x03;
 
         // Fetch tile pixel
-        const fineY = py & 0x07;
-        const fineX = px & 0x07;
+        const fineY = normalizedPy & 0x07;
+        const fineX = normalizedPx & 0x07;
         const tileAddr = bgTable + tileIndex * 16 + fineY;
         const p1 = this.readVram(tileAddr);
         const p2 = this.readVram(tileAddr + 8);
@@ -266,21 +281,19 @@ export class Ppu {
         if (palLow !== 0) {
           bgPixels[x] = palLow;
           const colorIdx = this.palette[(palHigh << 2) | palLow] & 0x3f;
-          this.frameBuffer[rowOffset + x] = 0xff000000 | NES_PALETTE_RGB[colorIdx];
+          this.frameBuffer[rowOffset + x] = NES_PALETTE_UINT32[colorIdx];
         }
       }
     }
 
     // 2. Render Sprites (OAM: 64 sprites of 4 bytes: Y, Tile, Attr, X)
     if (showSprites) {
-      let spritesFound = 0;
       // Scan sprites backwards so Sprite 0 has top priority
       for (let i = 63; i >= 0; i--) {
         const off = i * 4;
         const spY = this.oam[off] + 1; // Sprites are delayed by 1 scanline
         if (sl < spY || sl >= spY + spHeight) continue;
 
-        spritesFound++;
         const spTile = this.oam[off + 1];
         const spAttr = this.oam[off + 2];
         const spX = this.oam[off + 3];
@@ -320,7 +333,7 @@ export class Ppu {
 
           if (!behindBg || bgPixels[px] === 0) {
             const colorIdx = this.palette[(palHigh << 2) | palLow] & 0x3f;
-            this.frameBuffer[rowOffset + px] = 0xff000000 | NES_PALETTE_RGB[colorIdx];
+            this.frameBuffer[rowOffset + px] = NES_PALETTE_UINT32[colorIdx];
           }
         }
       }

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { HeaderBar } from './components/HeaderBar';
 import { RomUploader } from './components/RomUploader';
 import { EmulatorView } from './components/EmulatorView';
@@ -16,7 +16,7 @@ import { SAMPLE_ROMS } from './utils/sampleRoms';
 import { parseNesRom, serializeNesRom } from './utils/nesParser';
 import { createDefaultExeConfig, buildWindowsExecutable } from './utils/peBuilder';
 import { generateIcoFromCanvas } from './utils/icoGenerator';
-import { NesRomData, WindowsExeConfig } from './types/nes';
+import { NesRomData, WindowsExeConfig, RomSaveState } from './types/nes';
 
 export default function App() {
   // Load Blade Bounce sample as default
@@ -32,7 +32,50 @@ export default function App() {
   const [customIcoBytes, setCustomIcoBytes] = useState<Uint8Array | undefined>(undefined);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
 
+  // Save states per ROM
+  const [saveStates, setSaveStates] = useState<RomSaveState[]>(() => {
+    try {
+      const saved = localStorage.getItem(`nes_saves_${defaultParsed.crc32}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [selectedSaveStateId, setSelectedSaveStateId] = useState<string | undefined>(undefined);
+
   const emulatorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Sync save states with current ROM
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`nes_saves_${currentRom.crc32}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        setSaveStates(parsed);
+        setSelectedSaveStateId(parsed[0]?.id);
+      } else {
+        setSaveStates([]);
+        setSelectedSaveStateId(undefined);
+      }
+    } catch {
+      setSaveStates([]);
+      setSelectedSaveStateId(undefined);
+    }
+  }, [currentRom.crc32]);
+
+  const handleSaveStatesChange = (newStates: RomSaveState[]) => {
+    setSaveStates(newStates);
+    try {
+      localStorage.setItem(`nes_saves_${currentRom.crc32}`, JSON.stringify(newStates));
+    } catch {
+      // localStorage quota or unavailable
+    }
+  };
+
+  const activeSaveState = useMemo(() => {
+    return saveStates.find((s) => s.id === selectedSaveStateId);
+  }, [saveStates, selectedSaveStateId]);
 
   // Compute PE summary on the fly
   const peSummary = useMemo(() => {
@@ -44,7 +87,7 @@ export default function App() {
         currentRom.trainer,
         currentRom.header.isNes2
       );
-      const { summary } = buildWindowsExecutable(romBytes, exeConfig, customIcoBytes);
+      const { summary } = buildWindowsExecutable(romBytes, exeConfig, customIcoBytes, activeSaveState);
       return summary;
     } catch {
       return {
@@ -58,7 +101,7 @@ export default function App() {
         totalFileSize: 0,
       };
     }
-  }, [currentRom, exeConfig, customIcoBytes]);
+  }, [currentRom, exeConfig, customIcoBytes, activeSaveState]);
 
   const handleRomLoaded = (rom: NesRomData) => {
     setCurrentRom(rom);
@@ -104,6 +147,11 @@ export default function App() {
             config={exeConfig}
             canvasRef={emulatorCanvasRef}
             onCaptureIcon={handleCaptureIcon}
+            saveStates={saveStates}
+            onSaveStatesChange={handleSaveStatesChange}
+            selectedSaveStateId={selectedSaveStateId}
+            onSelectSaveStateId={setSelectedSaveStateId}
+            onOpenExportModal={() => setIsExportModalOpen(true)}
           />
         )}
 
@@ -159,6 +207,9 @@ export default function App() {
         rom={currentRom}
         config={exeConfig}
         customIcoBytes={customIcoBytes}
+        saveStates={saveStates}
+        selectedSaveStateId={selectedSaveStateId}
+        onSelectSaveStateId={setSelectedSaveStateId}
       />
     </div>
   );

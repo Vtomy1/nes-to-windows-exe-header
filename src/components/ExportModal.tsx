@@ -13,8 +13,9 @@ import {
   HardDrive,
   Cpu,
   ShieldCheck,
+  Save,
 } from 'lucide-react';
-import { NesRomData, WindowsExeConfig } from '../types/nes';
+import { NesRomData, WindowsExeConfig, RomSaveState } from '../types/nes';
 import { buildWindowsExecutable, buildDesktopDistributionZip } from '../utils/peBuilder';
 import { serializeNesRom } from '../utils/nesParser';
 
@@ -24,6 +25,9 @@ interface ExportModalProps {
   rom: NesRomData;
   config: WindowsExeConfig;
   customIcoBytes?: Uint8Array;
+  saveStates: RomSaveState[];
+  selectedSaveStateId?: string;
+  onSelectSaveStateId: (id: string | undefined) => void;
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
@@ -32,6 +36,9 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   rom,
   config,
   customIcoBytes,
+  saveStates,
+  selectedSaveStateId,
+  onSelectSaveStateId,
 }) => {
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
@@ -39,6 +46,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   if (!isOpen) return null;
 
   const sanitizedFileName = config.gameTitle.replace(/[^a-zA-Z0-9_\-]/g, '_');
+  const activeSaveState = saveStates.find((s) => s.id === selectedSaveStateId);
 
   const downloadExeDirect = () => {
     setIsExporting(true);
@@ -46,7 +54,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       const { exeBytes } = buildWindowsExecutable(
         serializeNesRom(rom.header, rom.prgRom, rom.chrRom, rom.trainer, rom.header.isNes2),
         config,
-        customIcoBytes
+        customIcoBytes,
+        activeSaveState
       );
       const blob = new Blob([exeBytes.buffer as ArrayBuffer], { type: 'application/vnd.microsoft.portable-executable' });
       const url = URL.createObjectURL(blob);
@@ -70,7 +79,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       const zipBlob = await buildDesktopDistributionZip(
         serializeNesRom(rom.header, rom.prgRom, rom.chrRom, rom.trainer, rom.header.isNes2),
         config,
-        customIcoBytes
+        customIcoBytes,
+        activeSaveState
       );
       const url = URL.createObjectURL(zipBlob);
       const a = document.createElement('a');
@@ -132,6 +142,29 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           </div>
         )}
 
+        {/* Save State Selection */}
+        <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+          <label className="text-xs font-bold text-slate-200 flex items-center gap-2">
+            <Save className="w-3.5 h-3.5 text-amber-400" />
+            <span>Pre-Packaged Save State (Game Progress)</span>
+          </label>
+          <p className="text-[11px] text-slate-400">
+            Choose whether to resume from your current checkpoint on desktop launch, or start cleanly from the title screen.
+          </p>
+          <select
+            value={selectedSaveStateId || ''}
+            onChange={(e) => onSelectSaveStateId(e.target.value || undefined)}
+            className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-800 text-white text-xs focus:outline-none focus:border-amber-500 cursor-pointer"
+          >
+            <option value="">Start from Title Screen (No Save State)</option>
+            {saveStates.map((s) => (
+              <option key={s.id} value={s.id}>
+                Slot {s.slotNumber}: {s.name} ({new Date(s.timestamp).toLocaleTimeString()})
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Binary Build Summary */}
         <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5 text-xs">
           <span className="font-semibold text-slate-200 block">Synthesized Target Package:</span>
@@ -152,7 +185,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               Audio Sampling: <span className="text-slate-200 font-mono">{config.audioSampleRate} Hz</span>
             </div>
             <div>
-              Icon Resource: <span className="text-amber-400 font-mono">{customIcoBytes ? 'Frame Snapshot' : 'NES Cartridge'}</span>
+              Embedded Progress: <span className="text-amber-400 font-mono">{activeSaveState ? activeSaveState.name : 'None'}</span>
             </div>
           </div>
         </div>
@@ -170,7 +203,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               <div>
                 <div className="text-sm font-bold">Complete Desktop Release Bundle (.zip)</div>
                 <div className="text-xs font-normal text-slate-900 opacity-90">
-                  Includes {sanitizedFileName}.exe, config.ini, autorun.inf, icon.ico, and saves/ folder
+                  Includes {sanitizedFileName}.exe, config.ini, autorun.inf, icon.ico, {activeSaveState ? 'saves/quicksave.state, ' : ''}and saves/ folder
                 </div>
               </div>
             </div>
@@ -187,7 +220,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               <FileCode className="w-4 h-4 text-amber-400 shrink-0" />
               <div className="text-left">
                 <span className="font-semibold block">{sanitizedFileName}.exe (Direct Executable)</span>
-                <span className="text-slate-400 text-[11px]">Standalone single-file Portable Executable binary</span>
+                <span className="text-slate-400 text-[11px]">Standalone single-file Portable Executable with embedded payload</span>
               </div>
             </div>
             <Download className="w-4 h-4 text-slate-400" />

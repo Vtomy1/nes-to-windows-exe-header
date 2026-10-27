@@ -199,40 +199,83 @@ export class NesSystem implements CpuBus, PpuBus {
   }
 
   // Save / Load state
-  public saveState(): void {
+  public saveState(): string {
     const stateObj = {
       cpu: {
-        a: this.cpu.a, x: this.cpu.x, y: this.cpu.y, pc: this.cpu.pc, sp: this.cpu.sp,
-        c: this.cpu.flagC, z: this.cpu.flagZ, i: this.cpu.flagI, d: this.cpu.flagD,
-        v: this.cpu.flagV, n: this.cpu.flagN,
+        a: this.cpu.a,
+        x: this.cpu.x,
+        y: this.cpu.y,
+        pc: this.cpu.pc,
+        sp: this.cpu.sp,
+        c: this.cpu.flagC,
+        z: this.cpu.flagZ,
+        i: this.cpu.flagI,
+        d: this.cpu.flagD,
+        v: this.cpu.flagV,
+        n: this.cpu.flagN,
+      },
+      ppu: {
+        ctrl: this.ppu.ctrl,
+        mask: this.ppu.mask,
+        status: this.ppu.status,
+        oamAddr: this.ppu.oamAddr,
+        scrollX: this.ppu.scrollX,
+        scrollY: this.ppu.scrollY,
+        v: this.ppu.v,
+        t: this.ppu.t,
+        x: this.ppu.x,
+        w: this.ppu.w,
+        scanline: this.ppu.scanline,
+        cycle: this.ppu.cycle,
+        frame: this.ppu.frame,
       },
       ram: Array.from(this.ram),
       vram: Array.from(this.vram),
       oam: Array.from(this.ppu.oam),
       palette: Array.from(this.ppu.palette),
     };
-    this.savedState = JSON.stringify(stateObj);
+    const json = JSON.stringify(stateObj);
+    this.savedState = json;
+    return json;
   }
 
-  public loadState(): boolean {
-    if (!this.savedState) return false;
+  public loadState(customStateJson?: string): boolean {
+    const raw = customStateJson || this.savedState;
+    if (!raw) return false;
     try {
-      const s = JSON.parse(this.savedState);
-      this.cpu.a = s.cpu.a;
-      this.cpu.x = s.cpu.x;
-      this.cpu.y = s.cpu.y;
-      this.cpu.pc = s.cpu.pc;
-      this.cpu.sp = s.cpu.sp;
-      this.cpu.flagC = s.cpu.c;
-      this.cpu.flagZ = s.cpu.z;
-      this.cpu.flagI = s.cpu.i;
-      this.cpu.flagD = s.cpu.d;
-      this.cpu.flagV = s.cpu.v;
-      this.cpu.flagN = s.cpu.n;
-      this.ram.set(s.ram);
-      this.vram.set(s.vram);
-      this.ppu.oam.set(s.oam);
-      this.ppu.palette.set(s.palette);
+      const s = JSON.parse(raw);
+      if (s.cpu) {
+        this.cpu.a = s.cpu.a;
+        this.cpu.x = s.cpu.x;
+        this.cpu.y = s.cpu.y;
+        this.cpu.pc = s.cpu.pc;
+        this.cpu.sp = s.cpu.sp;
+        this.cpu.flagC = s.cpu.c;
+        this.cpu.flagZ = s.cpu.z;
+        this.cpu.flagI = s.cpu.i;
+        this.cpu.flagD = s.cpu.d;
+        this.cpu.flagV = s.cpu.v;
+        this.cpu.flagN = s.cpu.n;
+      }
+      if (s.ppu) {
+        this.ppu.ctrl = s.ppu.ctrl ?? this.ppu.ctrl;
+        this.ppu.mask = s.ppu.mask ?? this.ppu.mask;
+        this.ppu.status = s.ppu.status ?? this.ppu.status;
+        this.ppu.oamAddr = s.ppu.oamAddr ?? this.ppu.oamAddr;
+        this.ppu.scrollX = s.ppu.scrollX ?? this.ppu.scrollX;
+        this.ppu.scrollY = s.ppu.scrollY ?? this.ppu.scrollY;
+        this.ppu.v = s.ppu.v ?? this.ppu.v;
+        this.ppu.t = s.ppu.t ?? this.ppu.t;
+        this.ppu.x = s.ppu.x ?? this.ppu.x;
+        this.ppu.w = s.ppu.w ?? 0;
+        this.ppu.scanline = s.ppu.scanline ?? 0;
+        this.ppu.cycle = s.ppu.cycle ?? 0;
+        this.ppu.frame = s.ppu.frame ?? 0;
+      }
+      if (s.ram) this.ram.set(s.ram);
+      if (s.vram) this.vram.set(s.vram);
+      if (s.oam) this.ppu.oam.set(s.oam);
+      if (s.palette) this.ppu.palette.set(s.palette);
       return true;
     } catch {
       return false;
